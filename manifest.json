@@ -6,7 +6,7 @@
   "orientation": "any",
   "scope": "/",
   "short_name": "fruitbook.github",
-  "start_url": "//",
+  "start_url": "/jishiben/",
   "theme_color": "#ffffff",
   "display_override": [
     "standalone",
