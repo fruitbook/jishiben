@@ -1,0 +1,300 @@
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>果冻记事本 - 便携版</title>
+    <!-- 依赖库：Tailwind CSS, React, Babel (用于本地解析JSX) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background: transparent;
+            font-family: 'Microsoft YaHei', 'Segoe UI', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .glass-effect {
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        }
+        .main-container {
+            resize: both;
+            overflow: hidden;
+            min-width: 280px;
+            min-height: 350px;
+            display: flex;
+            flex-direction: column;
+            transition: background-color 0.3s ease;
+        }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        .resizer-handle {
+            position: absolute;
+            bottom: 0;
+            right: 0;
+            width: 16px;
+            height: 16px;
+            cursor: nwse-resize;
+            background: linear-gradient(135deg, transparent 50%, rgba(255,255,255,0.3) 50%);
+            border-bottom-right-radius: 1rem;
+        }
+
+        /* 选中文本颜色 */
+        ::selection { background: rgba(255,255,255,0.3); }
+    </style>
+<script type="importmap">
+{
+  "imports": {
+    "react/": "https://esm.sh/react@^19.2.3/",
+    "react": "https://esm.sh/react@^19.2.3"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef, useCallback } = React;
+
+        const ROW_COLORS = ['#FFADAD', '#FFD6A5', '#FDFFB6', '#CAFFBF', '#9BF6FF', '#A0C4FF', '#BDB2FF', '#FFC6FF'];
+        const STORAGE_KEY = 'jelly_notes_data';
+        const INITIAL_COUNT = 5;
+
+        // --- 子组件：单条记录 ---
+        const NoteItem = ({ note, isLocked, onUpdate, onDelete, isDragging }) => {
+            const [isEditing, setIsEditing] = useState(false);
+            const [tempText, setTempText] = useState(note.text);
+            const [dragOffset, setDragOffset] = useState(0);
+            const [isSwiping, setIsSwiping] = useState(false);
+            
+            const inputRef = useRef(null);
+            const startXRef = useRef(0);
+            const containerRef = useRef(null);
+
+            // 如果是刚创建的空笔记，自动进入编辑模式
+            useEffect(() => {
+                if (note.isNew) {
+                    setIsEditing(true);
+                    onUpdate(note.id, note.text, false); // 清除 isNew 标记
+                }
+            }, []);
+
+            useEffect(() => {
+                if (isEditing && inputRef.current) inputRef.current.focus();
+            }, [isEditing]);
+
+            const handleMouseDown = (e) => {
+                if (isLocked || isEditing) return;
+                startXRef.current = e.clientX;
+                setIsSwiping(true);
+            };
+
+            useEffect(() => {
+                const handleMouseMove = (e) => {
+                    if (!isSwiping) return;
+                    const deltaX = e.clientX - startXRef.current;
+                    if (deltaX > 0) setDragOffset(deltaX);
+                };
+                const handleMouseUp = () => {
+                    if (!isSwiping) return;
+                    const width = containerRef.current?.offsetWidth || 0;
+                    if (dragOffset > width / 2) onDelete();
+                    setDragOffset(0);
+                    setIsSwiping(false);
+                };
+
+                if (isSwiping) {
+                    window.addEventListener('mousemove', handleMouseMove);
+                    window.addEventListener('mouseup', handleMouseUp);
+                }
+                return () => {
+                    window.removeEventListener('mousemove', handleMouseMove);
+                    window.removeEventListener('mouseup', handleMouseUp);
+                };
+            }, [isSwiping, dragOffset]);
+
+            return (
+                <div className="relative overflow-hidden border-b border-white/10 last:border-none">
+                    <div 
+                        className="absolute inset-0 bg-red-500/30 flex items-center pl-6 transition-opacity"
+                        style={{ opacity: dragOffset > 40 ? 1 : 0 }}
+                    >
+                        <span className="text-white/60 text-xs font-bold">释放删除</span>
+                    </div>
+
+                    <div
+                        ref={containerRef}
+                        onMouseDown={handleMouseDown}
+                        style={{ 
+                            transform: `translateX(${dragOffset}px)`,
+                            transition: isSwiping ? 'none' : 'transform 0.4s cubic-bezier(0.18, 0.89, 0.32, 1.28)'
+                        }}
+                        className={`
+                            flex items-center px-6 py-4 relative z-10 select-none
+                            ${isLocked ? 'cursor-default' : 'cursor-grab active:cursor-grabbing hover:bg-white/5'}
+                            ${isDragging ? 'opacity-20' : 'opacity-100'}
+                        `}
+                    >
+                        <div className="w-2 h-2 rounded-full bg-white mr-4 shadow-[0_0_8px_white]" />
+                        <div className="flex-grow min-w-0" onDoubleClick={(e) => { e.stopPropagation(); !isLocked && setIsEditing(true); }}>
+                            {isEditing ? (
+                                <input
+                                    ref={inputRef}
+                                    value={tempText}
+                                    onChange={e => setTempText(e.target.value)}
+                                    onBlur={() => { setIsEditing(false); onUpdate(note.id, tempText); }}
+                                    onKeyDown={e => e.key === 'Enter' && inputRef.current.blur()}
+                                    className="w-full bg-transparent border-none outline-none font-bold text-base p-0"
+                                    style={{ color: note.color }}
+                                />
+                            ) : (
+                                <div 
+                                    className="truncate font-bold text-base h-6 leading-6"
+                                    style={{ color: note.color, textShadow: '0 1px 2px rgba(0,0,0,0.3)' }}
+                                >
+                                    {note.text || (isLocked ? "" : "...")}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- 主组件 ---
+        const App = () => {
+            const [notes, setNotes] = useState([]);
+            const [isLocked, setIsLocked] = useState(false);
+            const [bgOpacity, setBgOpacity] = useState(0.25);
+            const [history, setHistory] = useState([]);
+
+            // 初始化
+            useEffect(() => {
+                const saved = localStorage.getItem(STORAGE_KEY);
+                const savedOp = localStorage.getItem('jelly_op');
+                if (saved) {
+                    setNotes(JSON.parse(saved));
+                } else {
+                    // 初始化 5 条带颜色的记录
+                    const initialNotes = Array.from({ length: INITIAL_COUNT }, (_, i) => ({
+                        id: crypto.randomUUID(),
+                        text: '',
+                        color: ROW_COLORS[i % ROW_COLORS.length]
+                    }));
+                    setNotes(initialNotes);
+                }
+                if (savedOp) setBgOpacity(parseFloat(savedOp));
+            }, []);
+
+            // 持久化
+            useEffect(() => { 
+                if (notes.length > 0) {
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify(notes));
+                }
+                localStorage.setItem('jelly_op', bgOpacity.toString());
+            }, [notes, bgOpacity]);
+
+            // Ctrl+Z 撤销
+            useEffect(() => {
+                const handleUndo = (e) => {
+                    if ((e.ctrlKey || e.metaKey) && e.key === 'z' && history.length > 0) {
+                        const last = history[history.length - 1];
+                        const newNotes = [...notes];
+                        newNotes.splice(last.index, 0, last.note);
+                        setNotes(newNotes);
+                        setHistory(prev => prev.slice(0, -1));
+                    }
+                };
+                window.addEventListener('keydown', handleUndo);
+                return () => window.removeEventListener('keydown', handleUndo);
+            }, [history, notes]);
+
+            const handleDelete = (id) => {
+                const idx = notes.findIndex(n => n.id === id);
+                setHistory(prev => [...prev, { note: notes[idx], index: idx }]);
+                setNotes(prev => prev.filter(n => n.id !== id));
+            };
+
+            const addNote = () => {
+                setNotes([...notes, { 
+                    id: crypto.randomUUID(), 
+                    text: '', 
+                    color: ROW_COLORS[notes.length % ROW_COLORS.length],
+                    isNew: true 
+                }]);
+            };
+
+            return (
+                <div 
+                    className={`main-container glass-effect rounded-2xl relative ${isLocked ? 'pointer-events-none' : 'pointer-events-auto'}`}
+                    style={{ 
+                        width: '380px', height: '550px',
+                        backgroundColor: `rgba(15, 23, 42, ${bgOpacity})`
+                    }}
+                >
+                    <div className="flex items-center justify-between px-6 py-5 bg-white/5 border-b border-white/10 select-none">
+                        <h1 className="text-white font-black text-xs tracking-widest opacity-80">果冻记事本</h1>
+                        <div className="flex items-center gap-4" style={{ pointerEvents: 'auto' }}>
+                            {!isLocked && (
+                                <input type="range" min="0" max="0.9" step="0.01" value={bgOpacity} 
+                                    onChange={e => setBgOpacity(e.target.value)} 
+                                    className="w-12 h-1 bg-white/20 rounded-full appearance-none accent-white cursor-pointer" 
+                                />
+                            )}
+                            {!isLocked && (
+                                <button onClick={addNote} className="text-white/40 hover:text-white">
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                                </button>
+                            )}
+                            <button onClick={() => setIsLocked(!isLocked)} className="text-white/40 hover:text-white">
+                                {isLocked ? 
+                                    <svg className="text-blue-400" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg> :
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 9.9-1"></path></svg>
+                                }
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* 列表容器：添加双击空白处新增的功能 */}
+                    <div 
+                        onDoubleClick={() => !isLocked && addNote()}
+                        className={`flex-grow overflow-y-auto no-scrollbar py-2 ${isLocked ? 'opacity-50' : ''}`}
+                    >
+                        {notes.map(note => (
+                            <NoteItem key={note.id} note={note} isLocked={isLocked}
+                                onUpdate={(id, text, clearIsNew = true) => {
+                                    setNotes(notes.map(n => n.id === id ? {...n, text, isNew: clearIsNew ? false : n.isNew} : n))
+                                }}
+                                onDelete={() => handleDelete(note.id)}
+                            />
+                        ))}
+                    </div>
+
+                    {!isLocked && <div className="resizer-handle" />}
+                    <div className="px-6 py-3 bg-black/10 text-[9px] text-white/20 text-right select-none tracking-tighter">
+                        向右滑删除 • CTRL+Z 撤销 • 双击空白处新增
+                    </div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+<script type="module" src="/index.tsx"></script>
+</body>
+</html>

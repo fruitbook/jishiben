@@ -1,0 +1,5 @@
+{
+  "name": "Glassy Desk Notes",
+  "description": "A high-performance, transparent desktop-style notepad with drag-and-drop reordering, mouse-through locking simulation, and persistence.",
+  "requestFramePermissions": []
+}
